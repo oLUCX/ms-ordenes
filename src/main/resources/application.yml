@@ -1,16 +1,21 @@
 server:
-  port: 8082
+  port: ${PORT:8082}
 
 spring:
   application:
     name: ms-ordenes
   datasource:
-    url: jdbc:postgresql://localhost:5432/bodeganube_ordenes
-    username: postgres
-    password: postgres
+    # Base de datos propia del microservicio (database-per-service).
+    # Los valores por defecto apuntan a un PostgreSQL local; se cambian con variables de entorno.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/bodeganube_ordenes}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:postgres}
   jpa:
     hibernate:
+      # Hibernate crea o actualiza las tablas a partir de las entidades al iniciar.
       ddl-auto: update
+    # La sesion de BD se cierra al terminar la transaccion del service, no al final de la peticion HTTP.
+    open-in-view: false
     show-sql: true
     properties:
       hibernate:
