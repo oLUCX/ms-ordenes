@@ -4,6 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+    <!-- Spring Boot define las versiones de todas las dependencias y plugins de abajo -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
@@ -13,32 +14,43 @@
 
     <groupId>com.bodeganube</groupId>
     <artifactId>ms-ordenes</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.0.0</version>
     <name>ms-ordenes</name>
     <description>Microservicio de gestion del ciclo de vida del pedido - Caso BodegaNube (JVY0101)</description>
 
     <properties>
         <java.version>17</java.version>
+        <!-- Los tests usan Mockito (via Byte Buddy). Esta opcion le permite correr tambien en JDK mas nuevos que Java 22 -->
+        <argLine>-Dnet.bytebuddy.experimental=true</argLine>
     </properties>
 
     <dependencies>
+        <!-- API REST: Spring MVC, Tomcat embebido y Jackson para JSON -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+
+        <!-- Persistencia: Spring Data JPA sobre Hibernate -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
+
+        <!-- Validacion de los datos de entrada (@NotBlank, @Positive, ...) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
+
+        <!-- Driver JDBC de PostgreSQL: solo se necesita al ejecutar -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
+
+        <!-- Pruebas: JUnit 5, Mockito, AssertJ y MockMvc -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -47,7 +59,10 @@
     </dependencies>
 
     <build>
+        <!-- Nombre fijo del artefacto: target/ms-ordenes.jar -->
+        <finalName>${project.artifactId}</finalName>
         <plugins>
+            <!-- Empaqueta un .jar ejecutable que se levanta con: java -jar target/ms-ordenes.jar -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
