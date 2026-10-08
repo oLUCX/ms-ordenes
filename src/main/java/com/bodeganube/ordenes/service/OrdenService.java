@@ -1,9 +1,12 @@
 package com.bodeganube.ordenes.service;
 
+import com.bodeganube.ordenes.dto.ActualizarOrdenRequest;
 import com.bodeganube.ordenes.dto.CrearOrdenRequest;
+import com.bodeganube.ordenes.dto.ItemRequest;
 import com.bodeganube.ordenes.dto.OrdenRegistrada;
 import com.bodeganube.ordenes.dto.OrdenResponse;
 import com.bodeganube.ordenes.exception.RecursoNoEncontradoException;
+import com.bodeganube.ordenes.exception.ReglaNegocioException;
 import com.bodeganube.ordenes.model.EstadoOrden;
 import com.bodeganube.ordenes.model.Orden;
 import com.bodeganube.ordenes.model.OrdenItem;
@@ -44,25 +47,28 @@ public class OrdenService {
         orden.setComercioId(request.comercioId());
         orden.setEstado(EstadoOrden.PENDIENTE_STOCK);
         orden.setFechaCreacion(LocalDateTime.now());
-
-        request.items().forEach(itemReq -> {
-            OrdenItem item = new OrdenItem();
-            item.setOrden(orden);
-            item.setProductoId(itemReq.productoId());
-            item.setCantidad(itemReq.cantidad());
-            orden.getItems().add(item);
-        });
+        request.items().forEach(itemReq -> orden.agregarItem(aItem(itemReq)));
 
         // En la version con AWS, aqui se invoca a ms-inventario (Circuit Breaker + Retry) para reservar
         // stock antes de pasar la orden a LISTA_PARA_PICKING. Ver seccion 3.2 del informe de arquitectura.
         return new OrdenRegistrada(OrdenResponse.de(ordenRepository.save(orden)), true);
     }
 
-    /** RF-06: cada comercio consulta solo sus propias ordenes (Tenant Isolation). */
-    public List<OrdenResponse> consultarPorComercio(String comercioId) {
-        return ordenRepository.findByComercioId(comercioId).stream()
+    /**
+     * Sin comercioId lista todas (vista del operario). RF-06: con comercioId, cada comercio ve solo
+     * sus propias ordenes (Tenant Isolation; el gateway lo forzara con el claim comercioId del JWT).
+     */
+    public List<OrdenResponse> listar(String comercioId) {
+        List<Orden> ordenes = (comercioId == null || comercioId.isBlank())
+                ? ordenRepository.findAll()
+                : ordenRepository.findByComercioId(comercioId);
+        return ordenes.stream()
                 .map(OrdenResponse::de)
                 .toList();
+    }
+
+    public OrdenResponse obtener(Long id) {
+        return OrdenResponse.de(buscar(id));
     }
 
     /** RF-03: ordenes con stock ya reservado, listas para que bodega las prepare. */
@@ -72,15 +78,49 @@ public class OrdenService {
                 .toList();
     }
 
+    /** Los items solo se pueden cambiar mientras la orden espera stock; despues ya hay reservas hechas. */
     @Transactional
-    public OrdenResponse actualizarEstado(Long id, EstadoOrden nuevoEstado) {
+    public OrdenResponse actualizarItems(Long id, ActualizarOrdenRequest request) {
         Orden orden = buscar(id);
+        if (orden.getEstado() != EstadoOrden.PENDIENTE_STOCK) {
+            throw new ReglaNegocioException("Solo se pueden modificar los items de una orden PENDIENTE_STOCK; estado actual: "
+                    + orden.getEstado());
+        }
+        orden.reemplazarItems(request.items().stream().map(this::aItem).toList());
+        return OrdenResponse.de(ordenRepository.save(orden));
+    }
+
+    /** Aplica las transiciones definidas en EstadoOrden.puedeCambiarA. */
+    @Transactional
+    public OrdenResponse cambiarEstado(Long id, EstadoOrden nuevoEstado) {
+        Orden orden = buscar(id);
+        if (!orden.getEstado().puedeCambiarA(nuevoEstado)) {
+            throw new ReglaNegocioException("No se puede pasar una orden de " + orden.getEstado() + " a " + nuevoEstado);
+        }
         orden.setEstado(nuevoEstado);
         return OrdenResponse.de(ordenRepository.save(orden));
+    }
+
+    /** Una orden que ya entro a bodega (EN_PICKING o DESPACHADA) no se puede eliminar. */
+    @Transactional
+    public void eliminar(Long id) {
+        Orden orden = buscar(id);
+        if (orden.getEstado() == EstadoOrden.EN_PICKING || orden.getEstado() == EstadoOrden.DESPACHADA) {
+            throw new ReglaNegocioException("No se puede eliminar la orden " + id + " porque ya esta en bodega (estado "
+                    + orden.getEstado() + ")");
+        }
+        ordenRepository.delete(orden);
     }
 
     private Orden buscar(Long id) {
         return ordenRepository.findById(id)
                 .orElseThrow(() -> new RecursoNoEncontradoException("No existe la orden " + id));
+    }
+
+    private OrdenItem aItem(ItemRequest itemReq) {
+        OrdenItem item = new OrdenItem();
+        item.setProductoId(itemReq.productoId());
+        item.setCantidad(itemReq.cantidad());
+        return item;
     }
 }
