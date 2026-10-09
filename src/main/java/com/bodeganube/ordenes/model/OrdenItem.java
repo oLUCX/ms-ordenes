@@ -2,6 +2,7 @@ package com.bodeganube.ordenes.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -17,14 +18,17 @@ public class OrdenItem {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne
-    @JoinColumn(name = "orden_id")
+    // Lado "muchos" de la relacion: aqui vive la FK orden_id. Un item siempre pertenece a una orden
+    // (optional = false) y solo se carga la orden si se pide (LAZY).
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "orden_id", nullable = false)
     private Orden orden;
 
-    @Column
+    // SKU del producto en ms-inventario. No es FK: cada microservicio tiene su propia base de datos.
+    @Column(nullable = false)
     private String productoId;
 
-    @Column
+    @Column(nullable = false)
     private Integer cantidad;
 
     public Long getId() {

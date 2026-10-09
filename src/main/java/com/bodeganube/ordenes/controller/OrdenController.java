@@ -1,24 +1,28 @@
 package com.bodeganube.ordenes.controller;
 
+import com.bodeganube.ordenes.dto.ActualizarOrdenRequest;
+import com.bodeganube.ordenes.dto.CambioEstadoRequest;
 import com.bodeganube.ordenes.dto.CrearOrdenRequest;
-import com.bodeganube.ordenes.model.EstadoOrden;
-import com.bodeganube.ordenes.model.Orden;
-import com.bodeganube.ordenes.model.OrdenItem;
-import com.bodeganube.ordenes.repository.OrdenRepository;
+import com.bodeganube.ordenes.dto.OrdenRegistrada;
+import com.bodeganube.ordenes.dto.OrdenResponse;
+import com.bodeganube.ordenes.service.OrdenService;
 import jakarta.validation.Valid;
-import java.time.LocalDateTime;
+import java.net.URI;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 /**
  * RF-02: recepcion de avisos de venta externos via webhook.
@@ -29,56 +33,54 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/ordenes")
 public class OrdenController {
 
-    private final OrdenRepository ordenRepository;
+    private final OrdenService ordenService;
 
-    public OrdenController(OrdenRepository ordenRepository) {
-        this.ordenRepository = ordenRepository;
+    public OrdenController(OrdenService ordenService) {
+        this.ordenService = ordenService;
     }
 
+    /** 201 si la orden es nueva; 200 con la misma orden si el evento es un reintento (idempotencia). */
     @PostMapping
-    public ResponseEntity<?> recibirAvisoDeVenta(@Valid @RequestBody CrearOrdenRequest request) {
-        // Idempotent Receiver (RNF-02): si el evento ya fue procesado, se ignora el duplicado
-        // sin generar una segunda orden.
-        if (ordenRepository.existsByExternalOrderId(request.externalOrderId())) {
-            return ResponseEntity.ok().body("Orden ya registrada previamente, se ignora el duplicado");
+    public ResponseEntity<OrdenResponse> recibirAvisoDeVenta(@Valid @RequestBody CrearOrdenRequest request) {
+        OrdenRegistrada registro = ordenService.recibirAvisoDeVenta(request);
+        if (!registro.creada()) {
+            return ResponseEntity.ok(registro.orden());
         }
-
-        Orden orden = new Orden();
-        orden.setExternalOrderId(request.externalOrderId());
-        orden.setComercioId(request.comercioId());
-        orden.setEstado(EstadoOrden.PENDIENTE_STOCK);
-        orden.setFechaCreacion(LocalDateTime.now());
-
-        request.items().forEach(itemReq -> {
-            OrdenItem item = new OrdenItem();
-            item.setOrden(orden);
-            item.setProductoId(itemReq.productoId());
-            item.setCantidad(itemReq.cantidad());
-            orden.getItems().add(item);
-        });
-
-        // NOTA (esqueleto minimo): en la version funcional completa, aqui se invocaria a
-        // ms-inventario (protegido con Circuit Breaker + Retry) para reservar stock antes de
-        // pasar la orden a LISTA_PARA_PICKING. Ver seccion 3.2 del informe de arquitectura.
-        Orden guardada = ordenRepository.save(orden);
-        return ResponseEntity.status(HttpStatus.CREATED).body(guardada);
+        URI ubicacion = ServletUriComponentsBuilder.fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(registro.orden().id())
+                .toUri();
+        return ResponseEntity.created(ubicacion).body(registro.orden());
     }
 
     @GetMapping
-    public List<Orden> consultarOrdenesPropias(@RequestParam String comercioId) {
-        return ordenRepository.findByComercioId(comercioId);
+    public List<OrdenResponse> listar(@RequestParam(required = false) String comercioId) {
+        return ordenService.listar(comercioId);
+    }
+
+    @GetMapping("/{id}")
+    public OrdenResponse obtener(@PathVariable Long id) {
+        return ordenService.obtener(id);
     }
 
     @GetMapping("/disponibles-picking")
-    public List<Orden> ordenesDisponiblesParaPicking() {
-        return ordenRepository.findByEstado(EstadoOrden.LISTA_PARA_PICKING);
+    public List<OrdenResponse> ordenesDisponiblesParaPicking() {
+        return ordenService.disponiblesParaPicking();
+    }
+
+    @PutMapping("/{id}")
+    public OrdenResponse actualizarItems(@PathVariable Long id, @Valid @RequestBody ActualizarOrdenRequest request) {
+        return ordenService.actualizarItems(id, request);
     }
 
     @PatchMapping("/{id}/estado")
-    public ResponseEntity<Orden> actualizarEstado(@PathVariable Long id, @RequestParam EstadoOrden nuevoEstado) {
-        Orden orden = ordenRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada"));
-        orden.setEstado(nuevoEstado);
-        return ResponseEntity.ok(ordenRepository.save(orden));
+    public OrdenResponse cambiarEstado(@PathVariable Long id, @Valid @RequestBody CambioEstadoRequest request) {
+        return ordenService.cambiarEstado(id, request.estado());
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void eliminar(@PathVariable Long id) {
+        ordenService.eliminar(id);
     }
 }

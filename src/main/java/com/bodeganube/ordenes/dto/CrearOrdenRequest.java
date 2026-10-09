@@ -10,8 +10,13 @@ import java.util.List;
  * ver diagrama de arquitectura, paso 4-5.
  */
 public record CrearOrdenRequest(
-        @NotBlank String externalOrderId,
-        @NotBlank String comercioId,
-        @NotEmpty List<@Valid ItemRequest> items
+        @NotBlank(message = "El externalOrderId es obligatorio (es la clave de idempotencia)")
+        String externalOrderId,
+
+        @NotBlank(message = "El comercioId es obligatorio")
+        String comercioId,
+
+        @NotEmpty(message = "La orden debe tener al menos un item")
+        List<@Valid ItemRequest> items
 ) {
 }

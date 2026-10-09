@@ -38,8 +38,23 @@ public class Orden {
     @Column(nullable = false)
     private LocalDateTime fechaCreacion;
 
+    // Lado "uno" de la relacion: una orden tiene muchos items. La FK orden_id vive en la tabla orden_items
+    // (mappedBy). cascade = ALL guarda y borra los items junto con la orden; orphanRemoval borra de la BD
+    // los items que se sacan de la lista.
     @OneToMany(mappedBy = "orden", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrdenItem> items = new ArrayList<>();
+
+    /** Agrega un item manteniendo sincronizados los dos lados de la relacion OneToMany / ManyToOne. */
+    public void agregarItem(OrdenItem item) {
+        item.setOrden(this);
+        items.add(item);
+    }
+
+    /** Reemplaza todos los items de la orden; los que se quitan se eliminan de la BD (orphanRemoval). */
+    public void reemplazarItems(List<OrdenItem> nuevos) {
+        items.clear();
+        nuevos.forEach(this::agregarItem);
+    }
 
     public Long getId() {
         return id;
